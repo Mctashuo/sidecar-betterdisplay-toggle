@@ -9,6 +9,7 @@ SYSTEM_PROFILER="${SIDECAR_TOGGLE_SYSTEM_PROFILER:-/usr/sbin/system_profiler}"
 IOREG="${SIDECAR_TOGGLE_IOREG:-/usr/sbin/ioreg}"
 LOG_FILE="${SIDECAR_TOGGLE_LOG_FILE:-${HOME}/Library/Logs/sidecar-toggle.log}"
 STATE_FILE="${SIDECAR_TOGGLE_STATE_FILE:-${HOME}/.sidecar-toggle-state}"
+DEVICES_FILE="${SIDECAR_TOGGLE_DEVICES_FILE:-${HOME}/.config/sidecar-toggle/devices.txt}"
 LOCK_DIR="${SIDECAR_TOGGLE_LOCK_DIR:-/tmp/sidecar-toggle.${UID}.lock}"
 VIRTUAL_DISPLAY_SETTLE_SECONDS="${SIDECAR_TOGGLE_VIRTUAL_DISPLAY_SETTLE_SECONDS:-2}"
 PREFERRED_DEVICES=(
@@ -19,6 +20,24 @@ PREFERRED_DEVICES=(
 log() {
   mkdir -p "${LOG_FILE:h}"
   print -r -- "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG_FILE"
+}
+
+load_preferred_devices() {
+  local line
+  local configured_devices=()
+
+  if [[ -f "$DEVICES_FILE" ]]; then
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      line="${line#"${line%%[![:space:]]*}"}"
+      line="${line%"${line##*[![:space:]]}"}"
+      [[ -z "$line" || "$line" == \#* ]] && continue
+      configured_devices+=("$line")
+    done < "$DEVICES_FILE"
+  fi
+
+  if (( ${#configured_devices[@]} > 0 )); then
+    PREFERRED_DEVICES=("${configured_devices[@]}")
+  fi
 }
 
 cleanup() {
@@ -239,6 +258,8 @@ connect_preferred_device() {
 }
 
 main() {
+  load_preferred_devices
+
   if ! /bin/mkdir "$LOCK_DIR" 2>/dev/null; then
     log "Another sidecar-toggle instance is already running"
     return 0
@@ -269,6 +290,8 @@ main() {
 }
 
 sync_main() {
+  load_preferred_devices
+
   if ! /bin/mkdir "$LOCK_DIR" 2>/dev/null; then
     log "Another sidecar-toggle instance is already running"
     return 0

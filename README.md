@@ -55,14 +55,13 @@ tagID=16
 ~/.local/bin/SidecarLauncher
 ```
 
-连接设备优先级写在 `sidecar-toggle.sh` 里：
+连接设备优先级保存在本机私有配置文件中：
 
-```zsh
-PREFERRED_DEVICES=(
-  "Example iPad"
-  "Example Tablet"
-)
+```text
+~/.config/sidecar-toggle/devices.txt
 ```
+
+每行一个设备名，顺序就是连接优先级。这个文件由安装脚本生成，不需要提交到 Git。
 
 脚本会先执行：
 
@@ -70,7 +69,7 @@ PREFERRED_DEVICES=(
 ~/.local/bin/SidecarLauncher devices list
 ```
 
-然后按上面的顺序选择可连接设备。
+然后按私有配置里的顺序选择可连接设备。
 
 ## 安装
 
@@ -80,10 +79,23 @@ PREFERRED_DEVICES=(
 ./install-sidecar-toggle-launchagent.sh
 ```
 
+安装脚本会先扫描当前可连接的 Sidecar 设备，并要求输入连接优先级。例如：
+
+```text
+Available Sidecar devices:
+  1) Desk iPad
+  2) Living Room iPad
+
+Enter device numbers in connection priority order (for example: 2 1): 1 2
+```
+
+如果没有检测到任何可连接设备，安装会中止。先确认 iPad 在 SidecarLauncher 中可见，再重新运行安装脚本。
+
 安装后会创建：
 
 ```text
 ~/.local/bin/sidecar-toggle.sh
+~/.config/sidecar-toggle/devices.txt
 ~/Library/LaunchAgents/local.sidecar-toggle.plist
 ~/Library/LaunchAgents/local.sidecar-display-sync.plist
 ~/.sidecar-toggle-trigger
@@ -330,6 +342,7 @@ local.sidecar-display-sync
 
 ```text
 ~/.local/bin/sidecar-toggle.sh
+~/.config/sidecar-toggle/devices.txt
 ~/.sidecar-toggle-trigger
 ~/.sidecar-toggle-state
 ~/Library/Logs/sidecar-toggle.log
@@ -343,6 +356,7 @@ local.sidecar-display-sync
 
 ```bash
 tests/sidecar-toggle-tests.zsh
+tests/install-launchagent-tests.zsh
 ```
 
 语法检查：
@@ -352,6 +366,7 @@ zsh -n sidecar-toggle.sh
 zsh -n install-sidecar-toggle-launchagent.sh
 zsh -n uninstall-sidecar-toggle-launchagent.sh
 zsh -n tests/sidecar-toggle-tests.zsh
+zsh -n tests/install-launchagent-tests.zsh
 ```
 
 ## 可配置项
@@ -390,6 +405,14 @@ SIDECAR_TOGGLE_LOG_FILE="$HOME/Library/Logs/sidecar-toggle.log"
 
 ```bash
 SIDECAR_TOGGLE_STATE_FILE="$HOME/.sidecar-toggle-state"
+```
+
+### 设备优先级配置文件
+
+默认：
+
+```bash
+SIDECAR_TOGGLE_DEVICES_FILE="$HOME/.config/sidecar-toggle/devices.txt"
 ```
 
 ### 锁目录
@@ -440,7 +463,7 @@ ls -l ~/.local/bin/SidecarLauncher
 ~/.local/bin/SidecarLauncher devices list
 ```
 
-设备名必须匹配 `sidecar-toggle.sh` 里的 `PREFERRED_DEVICES`。
+设备名必须匹配 `~/.config/sidecar-toggle/devices.txt` 里的配置。需要调整优先级时，重新运行安装脚本并重新输入编号，或直接编辑这个文件。
 
 ### BetterDisplay 命令失败
 

@@ -147,6 +147,8 @@ print -r -- "$*" >> "${FAKE_LAUNCHER_LOG}"
 
 if [[ "$1" == "devices" && "$2" == "list" ]]; then
   print -- "Example iPad"
+  print -- "Backup iPad"
+  print -- "Primary iPad"
 fi
 EOF
 
@@ -167,6 +169,7 @@ run_script() {
   SIDECAR_TOGGLE_BETTERDISPLAY="$dir/bin/BetterDisplay" \
   SIDECAR_TOGGLE_VIRTUAL_TAG_ID="16" \
   SIDECAR_TOGGLE_STATE_FILE="$dir/state" \
+  SIDECAR_TOGGLE_DEVICES_FILE="$dir/devices.txt" \
   SIDECAR_TOGGLE_LOCK_DIR="$dir/lock" \
   SIDECAR_TOGGLE_VIRTUAL_DISPLAY_SETTLE_SECONDS="0" \
   "$SCRIPT" "$@"
@@ -192,6 +195,21 @@ test_toggle_disconnects_virtual_display_before_sidecar_when_external_display_exi
 
   assert_contains "$dir/betterdisplay.log" "set --tagID=16 --connected=off"
   assert_contains "$dir/launcher.log" "connect Example iPad"
+}
+
+test_toggle_uses_private_device_config_priority() {
+  local dir
+  dir="$(/usr/bin/mktemp -d)"
+  make_fixture "$dir" 0
+  /bin/cat > "$dir/devices.txt" <<'EOF'
+Backup iPad
+Primary iPad
+EOF
+
+  run_script "$dir" toggle
+
+  assert_contains "$dir/launcher.log" "connect Backup iPad"
+  assert_not_contains "$dir/launcher.log" "connect Example iPad"
 }
 
 test_sync_disconnects_virtual_display_without_toggling_sidecar() {
