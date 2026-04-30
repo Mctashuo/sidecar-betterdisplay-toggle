@@ -1,0 +1,465 @@
+# Sidecar Toggle with BetterDisplay
+
+这组脚本用于在 macOS 上自动协调 Sidecar 随航、真实外接显示器和 BetterDisplay 虚拟显示器。
+
+核心目标：
+
+- 没有真实外接显示器时，打开随航前先连接 BetterDisplay 虚拟屏。
+- 有真实外接显示器时，自动断开 BetterDisplay 虚拟屏，避免多余显示器占用布局。
+- 如果随航正在使用真实外接显示器镜像，之后真实外接显示器断开，则自动打开虚拟屏并重新连接随航。
+- 如果之前没有打开随航，真实外接显示器断开时不会主动打开虚拟屏，也不会启动随航。
+
+## 文件说明
+
+- `sidecar-toggle.sh`
+  - 主逻辑脚本。
+  - 支持 `toggle` 和 `sync` 两个命令。
+- `install-sidecar-toggle-launchagent.sh`
+  - 安装脚本。
+  - 会复制主脚本到 `~/.local/bin/sidecar-toggle.sh`。
+  - 会安装两个 LaunchAgent。
+- `uninstall-sidecar-toggle-launchagent.sh`
+  - 卸载脚本。
+  - 会移除两个 LaunchAgent。
+- `tests/sidecar-toggle-tests.zsh`
+  - 本地行为测试。
+
+## 依赖
+
+### BetterDisplay
+
+脚本直接调用 BetterDisplay App 内部 binary：
+
+```bash
+/Applications/BetterDisplay.app/Contents/MacOS/BetterDisplay
+```
+
+虚拟屏默认使用：
+
+```text
+tagID=16
+```
+
+对应命令是：
+
+```bash
+/Applications/BetterDisplay.app/Contents/MacOS/BetterDisplay set --tagID=16 --connected=on
+/Applications/BetterDisplay.app/Contents/MacOS/BetterDisplay set --tagID=16 --connected=off
+```
+
+### SidecarLauncher
+
+脚本需要：
+
+```bash
+~/.local/bin/SidecarLauncher
+```
+
+连接设备优先级写在 `sidecar-toggle.sh` 里：
+
+```zsh
+PREFERRED_DEVICES=(
+  "Example iPad"
+  "Example Tablet"
+)
+```
+
+脚本会先执行：
+
+```bash
+~/.local/bin/SidecarLauncher devices list
+```
+
+然后按上面的顺序选择可连接设备。
+
+## 安装
+
+在当前目录执行：
+
+```bash
+./install-sidecar-toggle-launchagent.sh
+```
+
+安装后会创建：
+
+```text
+~/.local/bin/sidecar-toggle.sh
+~/Library/LaunchAgents/local.sidecar-toggle.plist
+~/Library/LaunchAgents/local.sidecar-display-sync.plist
+~/.sidecar-toggle-trigger
+```
+
+并加载两个 LaunchAgent：
+
+- `local.sidecar-toggle`
+  - 监听 `~/.sidecar-toggle-trigger`。
+  - 用于手动切换随航。
+- `local.sidecar-display-sync`
+  - 每 10 秒执行一次后台同步。
+  - 用于自动处理真实外接显示器和虚拟显示器之间的状态。
+
+安装脚本不会反复重写 `~/.sidecar-toggle-trigger`，避免重装时误触发 toggle。
+
+## 使用方法
+
+### 手动切换随航
+
+执行：
+
+```bash
+touch ~/.sidecar-toggle-trigger
+```
+
+这会触发：
+
+```bash
+~/.local/bin/sidecar-toggle.sh toggle
+```
+
+行为如下：
+
+1. 如果当前随航已经连接：
+   - 断开随航。
+   - 清除随航状态记录。
+2. 如果当前随航未连接，且检测到真实外接显示器：
+   - 断开 BetterDisplay 虚拟屏 `tagID=16`。
+   - 连接随航。
+   - 记录“外接屏期间随航是打开的”。
+3. 如果当前随航未连接，且没有真实外接显示器：
+   - 连接 BetterDisplay 虚拟屏 `tagID=16`。
+   - 等待 2 秒让显示器拓扑刷新。
+   - 连接随航。
+   - 记录为已恢复状态，避免后台 sync 重复操作。
+
+也可以直接运行：
+
+```bash
+~/.local/bin/sidecar-toggle.sh toggle
+```
+
+### 手动执行一次后台同步
+
+执行：
+
+```bash
+~/.local/bin/sidecar-toggle.sh sync
+```
+
+正常情况下不需要手动执行，安装后的 LaunchAgent 会每 10 秒自动执行一次。
+
+## 后台同步逻辑
+
+后台同步由：
+
+```text
+local.sidecar-display-sync
+```
+
+每 10 秒触发一次。
+
+### 检测到真实外接显示器
+
+脚本会：
+
+1. 检测随航是否连接。
+2. 如果随航已连接，写入状态：
+
+   ```text
+   ~/.sidecar-toggle-state = external-sidecar
+   ```
+
+3. 如果随航未连接，清除状态文件。
+4. 断开 BetterDisplay 虚拟屏：
+
+   ```bash
+   BetterDisplay set --tagID=16 --connected=off
+   ```
+
+### 真实外接显示器断开
+
+如果没有检测到真实外接显示器，脚本会检查状态文件。
+
+如果状态是：
+
+```text
+external-sidecar
+```
+
+说明之前是在“真实外接显示器 + 随航已打开”的状态下工作。此时脚本会：
+
+1. 打开 BetterDisplay 虚拟屏：
+
+   ```bash
+   BetterDisplay set --tagID=16 --connected=on
+   ```
+
+2. 等待 2 秒。
+3. 如果随航仍在线，先断开随航。
+4. 再重新连接随航。
+5. 将状态写为：
+
+   ```text
+   recovered
+   ```
+
+这样可以避免每 10 秒重复重启随航。
+
+如果没有 `external-sidecar` 状态，脚本不会打开虚拟屏，也不会启动随航。
+
+## 外接显示器检测
+
+脚本优先使用：
+
+```bash
+system_profiler SPDisplaysDataType
+```
+
+支持类似这样的输出：
+
+```text
+Displays:
+  MAG 272U X24:
+    Online: Yes
+  虚拟 16:12:
+    Online: Yes
+  Sidecar Display:
+    Connection Type: AirPlay
+    Virtual Device: Yes
+```
+
+其中：
+
+- `MAG 272U X24` 会被识别为真实外接显示器。
+- `虚拟 16:12` 会被排除。
+- `Sidecar Display` 会被排除。
+- `Virtual Device: Yes` 会被排除。
+- `Connection Type: AirPlay` 会被排除。
+- 内建屏会被排除。
+
+如果 `system_profiler` 没有返回显示器明细，脚本会 fallback 到：
+
+```bash
+ioreg -lw0 -r -c IOMobileFramebuffer
+```
+
+通过真实硬件显示器的 `DisplayAttributes`、`Transport` 和 `external = Yes` 判断外接屏。
+
+## 状态文件
+
+脚本使用：
+
+```text
+~/.sidecar-toggle-state
+```
+
+可能内容：
+
+- `external-sidecar`
+  - 表示上一次检测到“真实外接显示器存在，并且随航已连接”。
+  - 如果之后真实外接显示器断开，脚本会打开虚拟屏并重启随航。
+- `recovered`
+  - 表示已经从真实外接屏断开场景恢复过一次。
+  - 防止后台 sync 每 10 秒重复重启随航。
+
+手动断开随航时会清除状态文件。
+
+## 日志
+
+主日志：
+
+```bash
+~/Library/Logs/sidecar-toggle.log
+```
+
+LaunchAgent stderr：
+
+```bash
+~/Library/Logs/sidecar-toggle.launchd.err.log
+~/Library/Logs/sidecar-display-sync.launchd.err.log
+```
+
+查看最近日志：
+
+```bash
+tail -n 80 ~/Library/Logs/sidecar-toggle.log
+```
+
+常见日志含义：
+
+```text
+External display detected during sync; disconnecting BetterDisplay virtual display
+```
+
+检测到真实外接显示器，正在断开 BetterDisplay 虚拟屏。
+
+```text
+External display and Sidecar detected during sync; remembering Sidecar state
+```
+
+当前是真实外接显示器 + 随航已连接，已记录状态。之后如果外接显示器断开，会自动恢复到虚拟屏 + 随航。
+
+```text
+External display disappeared after Sidecar was active; reconnecting virtual display and restarting Sidecar
+```
+
+之前随航处于打开状态，现在真实外接显示器断开，脚本正在打开虚拟屏并重启随航。
+
+## 卸载
+
+执行：
+
+```bash
+./uninstall-sidecar-toggle-launchagent.sh
+```
+
+会卸载：
+
+```text
+local.sidecar-toggle
+local.sidecar-display-sync
+```
+
+并删除：
+
+```text
+~/Library/LaunchAgents/local.sidecar-toggle.plist
+~/Library/LaunchAgents/local.sidecar-display-sync.plist
+```
+
+卸载脚本不会删除：
+
+```text
+~/.local/bin/sidecar-toggle.sh
+~/.sidecar-toggle-trigger
+~/.sidecar-toggle-state
+~/Library/Logs/sidecar-toggle.log
+```
+
+如需清理这些文件，可以手动删除。
+
+## 测试
+
+在当前目录执行：
+
+```bash
+tests/sidecar-toggle-tests.zsh
+```
+
+语法检查：
+
+```bash
+zsh -n sidecar-toggle.sh
+zsh -n install-sidecar-toggle-launchagent.sh
+zsh -n uninstall-sidecar-toggle-launchagent.sh
+zsh -n tests/sidecar-toggle-tests.zsh
+```
+
+## 可配置项
+
+主脚本支持用环境变量覆盖默认值。
+
+### BetterDisplay 路径
+
+```bash
+SIDECAR_TOGGLE_BETTERDISPLAY="/Applications/BetterDisplay.app/Contents/MacOS/BetterDisplay"
+```
+
+### BetterDisplay 虚拟屏 tagID
+
+默认：
+
+```bash
+SIDECAR_TOGGLE_VIRTUAL_TAG_ID=16
+```
+
+### 虚拟屏连接后的等待时间
+
+默认 2 秒：
+
+```bash
+SIDECAR_TOGGLE_VIRTUAL_DISPLAY_SETTLE_SECONDS=2
+```
+
+### 日志文件
+
+```bash
+SIDECAR_TOGGLE_LOG_FILE="$HOME/Library/Logs/sidecar-toggle.log"
+```
+
+### 状态文件
+
+```bash
+SIDECAR_TOGGLE_STATE_FILE="$HOME/.sidecar-toggle-state"
+```
+
+### 锁目录
+
+```bash
+SIDECAR_TOGGLE_LOCK_DIR="/tmp/sidecar-toggle.${UID}.lock"
+```
+
+## 排障
+
+### 虚拟屏没有被断开
+
+先看日志：
+
+```bash
+tail -n 80 ~/Library/Logs/sidecar-toggle.log
+```
+
+确认是否出现：
+
+```text
+External display detected during sync
+```
+
+如果没有，检查系统显示器输出：
+
+```bash
+system_profiler SPDisplaysDataType
+```
+
+以及 fallback 数据：
+
+```bash
+ioreg -lw0 -r -c IOMobileFramebuffer
+```
+
+### 随航没有连接
+
+检查 SidecarLauncher 是否可执行：
+
+```bash
+ls -l ~/.local/bin/SidecarLauncher
+```
+
+检查设备是否可见：
+
+```bash
+~/.local/bin/SidecarLauncher devices list
+```
+
+设备名必须匹配 `sidecar-toggle.sh` 里的 `PREFERRED_DEVICES`。
+
+### BetterDisplay 命令失败
+
+检查 BetterDisplay binary：
+
+```bash
+ls -l /Applications/BetterDisplay.app/Contents/MacOS/BetterDisplay
+```
+
+手动测试：
+
+```bash
+/Applications/BetterDisplay.app/Contents/MacOS/BetterDisplay set --tagID=16 --connected=off
+/Applications/BetterDisplay.app/Contents/MacOS/BetterDisplay set --tagID=16 --connected=on
+```
+
+### 查看 LaunchAgent 状态
+
+```bash
+launchctl print "gui/$(id -u)/local.sidecar-toggle"
+launchctl print "gui/$(id -u)/local.sidecar-display-sync"
+```
