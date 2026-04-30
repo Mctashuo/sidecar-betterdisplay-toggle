@@ -114,7 +114,7 @@ Enter device numbers in connection priority order (for example: 2 1): 1 2
 
 ## 通过 iPad 触发
 
-当前的手动触发方式是：iPad 通过 SSH 连到 Mac，然后在 Mac 上写入 `~/.sidecar-toggle-trigger`。
+当前的手动触发方式是：iPad 通过 SSH 连到 Mac，然后在 Mac 上写入 `~/.sidecar-toggle-trigger`。触发文件可以包含发起请求的 iPad 名称，Mac 会优先连接这个名称对应的设备。
 
 ### Mac 端配置
 
@@ -153,22 +153,34 @@ ipconfig getifaddr en0
 
 ### iPad 端配置
 
-在 iPad 上安装任意 SSH 客户端，然后新建一个连接，填入这些信息：
+在 iPad 上用 `快捷指令` 做一个动作，自动把本机名称写到 Mac 的触发文件里。
 
-- Host: Mac 的局域网 IP 或主机名
-- Port: `22`
-- User: Mac 上允许远程登录的用户名
-- Auth: 密码或 SSH key
-
-如果选择 SSH key，先把 iPad 里生成的公钥加入 Mac 的 `~/.ssh/authorized_keys`，再在 iPad 客户端里选择对应的私钥。
-
-连接成功后，执行下面这条命令即可触发切换：
+1. 打开 `快捷指令`，点右上角 `+` 新建快捷指令。
+2. 添加动作 `获取设备详细信息`。
+3. 把详细信息设成 `设备名称`。
+4. 添加动作 `通过 SSH 运行脚本`。
+5. 在 SSH 动作里填入 Mac 的 `主机`、`用户名`、`端口` 和认证方式。
+6. 在脚本框里输入：
 
 ```bash
-touch ~/.sidecar-toggle-trigger
+printf '%s\n' "设备名称" > ~/.sidecar-toggle-trigger
 ```
 
-如果你的 SSH 客户端支持保存命令，也可以把它保存成一个快捷动作，避免每次手动输入。
+7. 把上一步的 `设备名称` 变量插入到双引号中间。
+
+这个快捷指令运行后，会把这台 iPad 的名称写进 Mac 的 `~/.sidecar-toggle-trigger`。Mac 会优先连接这个名字对应的设备。
+
+如果你希望手工核对设备名，也可以先在 Mac 上运行：
+
+```bash
+~/.local/bin/SidecarLauncher devices list
+```
+
+然后确保 iPad 快捷指令里写入的名称和列表里的设备名完全一致。
+
+如果选择 SSH key，先把 iPad 里生成的公钥加入 Mac 的 `~/.ssh/authorized_keys`，再在 iPad 快捷指令里选择对应的私钥。
+
+快捷指令也可以保存成主屏幕图标或 Siri 命令，这样每台 iPad 都能有自己的触发入口。
 
 ## 使用方法
 
@@ -180,7 +192,7 @@ touch ~/.sidecar-toggle-trigger
 touch ~/.sidecar-toggle-trigger
 ```
 
-这会触发：
+这会按默认优先级触发：
 
 ```bash
 ~/.local/bin/sidecar-toggle.sh toggle

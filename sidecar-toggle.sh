@@ -10,6 +10,7 @@ IOREG="${SIDECAR_TOGGLE_IOREG:-/usr/sbin/ioreg}"
 LOG_FILE="${SIDECAR_TOGGLE_LOG_FILE:-${HOME}/Library/Logs/sidecar-toggle.log}"
 STATE_FILE="${SIDECAR_TOGGLE_STATE_FILE:-${HOME}/.sidecar-toggle-state}"
 DEVICES_FILE="${SIDECAR_TOGGLE_DEVICES_FILE:-${HOME}/.config/sidecar-toggle/devices.txt}"
+TRIGGER_FILE="${SIDECAR_TOGGLE_TRIGGER_FILE:-${HOME}/.sidecar-toggle-trigger}"
 LOCK_DIR="${SIDECAR_TOGGLE_LOCK_DIR:-/tmp/sidecar-toggle.${UID}.lock}"
 VIRTUAL_DISPLAY_SETTLE_SECONDS="${SIDECAR_TOGGLE_VIRTUAL_DISPLAY_SETTLE_SECONDS:-2}"
 PREFERRED_DEVICES=(
@@ -38,6 +39,37 @@ load_preferred_devices() {
   if (( ${#configured_devices[@]} > 0 )); then
     PREFERRED_DEVICES=("${configured_devices[@]}")
   fi
+}
+
+prioritize_device() {
+  local requested_device="$1"
+  local device
+  local reordered_devices=()
+
+  [[ -z "$requested_device" ]] && return 0
+
+  reordered_devices+=("$requested_device")
+  for device in "${PREFERRED_DEVICES[@]}"; do
+    [[ "$device" == "$requested_device" ]] && continue
+    reordered_devices+=("$device")
+  done
+
+  PREFERRED_DEVICES=("${reordered_devices[@]}")
+}
+
+load_trigger_device_priority() {
+  local line
+
+  [[ -f "$TRIGGER_FILE" ]] || return 0
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    [[ -z "$line" || "$line" == \#* ]] && continue
+    prioritize_device "$line"
+    log "Prioritizing Sidecar device from trigger file: ${line}"
+    return 0
+  done < "$TRIGGER_FILE"
 }
 
 cleanup() {
@@ -259,6 +291,7 @@ connect_preferred_device() {
 
 main() {
   load_preferred_devices
+  load_trigger_device_priority
 
   if ! /bin/mkdir "$LOCK_DIR" 2>/dev/null; then
     log "Another sidecar-toggle instance is already running"

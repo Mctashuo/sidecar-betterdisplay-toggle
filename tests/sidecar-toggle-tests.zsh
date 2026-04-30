@@ -170,6 +170,7 @@ run_script() {
   SIDECAR_TOGGLE_VIRTUAL_TAG_ID="16" \
   SIDECAR_TOGGLE_STATE_FILE="$dir/state" \
   SIDECAR_TOGGLE_DEVICES_FILE="$dir/devices.txt" \
+  SIDECAR_TOGGLE_TRIGGER_FILE="$dir/trigger" \
   SIDECAR_TOGGLE_LOCK_DIR="$dir/lock" \
   SIDECAR_TOGGLE_VIRTUAL_DISPLAY_SETTLE_SECONDS="0" \
   "$SCRIPT" "$@"
@@ -210,6 +211,22 @@ EOF
 
   assert_contains "$dir/launcher.log" "connect Backup iPad"
   assert_not_contains "$dir/launcher.log" "connect Example iPad"
+}
+
+test_toggle_prioritizes_device_named_in_trigger_file() {
+  local dir
+  dir="$(/usr/bin/mktemp -d)"
+  make_fixture "$dir" 0
+  /bin/cat > "$dir/devices.txt" <<'EOF'
+Backup iPad
+Primary iPad
+EOF
+  print -r -- "Primary iPad" > "$dir/trigger"
+
+  run_script "$dir" toggle
+
+  assert_contains "$dir/launcher.log" "connect Primary iPad"
+  assert_not_contains "$dir/launcher.log" "connect Backup iPad"
 }
 
 test_sync_disconnects_virtual_display_without_toggling_sidecar() {
