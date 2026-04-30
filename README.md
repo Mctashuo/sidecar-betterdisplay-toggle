@@ -112,6 +112,64 @@ Enter device numbers in connection priority order (for example: 2 1): 1 2
 
 安装脚本不会反复重写 `~/.sidecar-toggle-trigger`，避免重装时误触发 toggle。
 
+## 通过 iPad 触发
+
+当前的手动触发方式是：iPad 通过 SSH 连到 Mac，然后在 Mac 上写入 `~/.sidecar-toggle-trigger`。
+
+### Mac 端配置
+
+在 Mac 上打开远程登录：
+
+1. 打开 `系统设置`。
+2. 进入 `通用` > `共享`。
+3. 打开 `远程登录`。
+4. 在 `允许访问` 中选择允许登录的本地用户，建议只放行当前登录账户。
+
+如果你打算用 SSH key 登录，还需要把 iPad 上生成的公钥加入 Mac 上这个用户的 `authorized_keys`：
+
+```bash
+mkdir -p ~/.ssh
+chmod 700 ~/.ssh
+printf '%s\n' 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI...' >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+```
+
+把上面那行 `ssh-ed25519 ...` 换成你 iPad SSH 客户端里导出的公钥内容。这里追加的是公钥，不是私钥。
+
+如果你已经把公钥存成一个文件，也可以直接追加：
+
+```bash
+cat ~/Downloads/ipad.pub >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+```
+
+如果你想从 iPad 直接连到 Mac，可以先在 Mac 上查看本机局域网地址：
+
+```bash
+ipconfig getifaddr en0
+```
+
+如果你是有线网络或 `en0` 没有地址，也可以改用 `en1` 或在共享页面里查看当前网络地址。
+
+### iPad 端配置
+
+在 iPad 上安装任意 SSH 客户端，然后新建一个连接，填入这些信息：
+
+- Host: Mac 的局域网 IP 或主机名
+- Port: `22`
+- User: Mac 上允许远程登录的用户名
+- Auth: 密码或 SSH key
+
+如果选择 SSH key，先把 iPad 里生成的公钥加入 Mac 的 `~/.ssh/authorized_keys`，再在 iPad 客户端里选择对应的私钥。
+
+连接成功后，执行下面这条命令即可触发切换：
+
+```bash
+touch ~/.sidecar-toggle-trigger
+```
+
+如果你的 SSH 客户端支持保存命令，也可以把它保存成一个快捷动作，避免每次手动输入。
+
 ## 使用方法
 
 ### 手动切换随航
