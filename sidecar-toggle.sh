@@ -98,7 +98,19 @@ is_sidecar_connected() {
 }
 
 has_external_display() {
-  has_external_display_from_system_profiler || has_external_display_from_ioreg
+  if ioreg_has_display_data; then
+    has_external_display_from_ioreg || has_external_display_from_betterdisplay
+    return $?
+  fi
+
+  has_external_display_from_system_profiler
+}
+
+ioreg_has_display_data() {
+  "$IOREG" -lw0 -r -c IOMobileFramebuffer | /usr/bin/awk '
+    /^\+-o IOMobileFramebuffer/ { found = 1 }
+    END { exit !found }
+  '
 }
 
 has_external_display_from_system_profiler() {
@@ -162,16 +174,46 @@ has_external_display_from_system_profiler() {
   '
 }
 
+has_external_display_from_betterdisplay() {
+  local identifiers tag_id
+
+  [[ -x "$BETTERDISPLAY" ]] || return 1
+
+  if ! identifiers="$("$BETTERDISPLAY" get --identifiers 2>/dev/null)"; then
+    return 1
+  fi
+
+  for tag_id in ${(f)"$(print -r -- "$identifiers" | /usr/bin/awk '
+    BEGIN { RS = "\\n\\},\\{" }
+    /"deviceType"[[:space:]]*:[[:space:]]*"Display"/ &&
+    /"registryLocation"[[:space:]]*:[[:space:]]*".*dispext[0-9]/ {
+      if (match($0, /"tagID"[[:space:]]*:[[:space:]]*"[0-9]+"/)) {
+        tag = substr($0, RSTART, RLENGTH)
+        gsub(/[^0-9]/, "", tag)
+        print tag
+      }
+    }
+  ')"}; do
+    [[ -z "$tag_id" ]] && continue
+    if "$BETTERDISPLAY" get --tagID="$tag_id" --ddcCapabilitiesString >/dev/null 2>&1; then
+      return 0
+    fi
+  done
+
+  return 1
+}
+
 has_external_display_from_ioreg() {
   "$IOREG" -lw0 -r -c IOMobileFramebuffer | /usr/bin/awk '
     function finish_display() {
-      if (inside && external && display_attributes && physical_transport) {
+      if (inside && external && display_attributes && physical_transport && active_timing) {
         found = 1
       }
       inside = 0
       external = 0
       display_attributes = 0
       physical_transport = 0
+      active_timing = 0
     }
 
     /^\+-o IOMobileFramebuffer/ {
@@ -183,6 +225,7 @@ has_external_display_from_ioreg() {
     inside && /"external" = Yes/ { external = 1 }
     inside && /"DisplayAttributes"/ { display_attributes = 1 }
     inside && /"Transport" = .*"(DP|HDMI|DVI|VGA|Thunderbolt)"/ { physical_transport = 1 }
+    inside && /"(DisplayClock|PixelClock)" = [1-9][0-9]*/ { active_timing = 1 }
 
     END {
       finish_display()
@@ -221,8 +264,12 @@ sync_virtual_display_for_external_monitor() {
       write_state "external-sidecar"
       log "External display and Sidecar detected during sync; remembering Sidecar state"
     else
-      clear_state
-      log "External display detected during sync; Sidecar is not connected"
+      if sidecar_was_active_with_external_display; then
+        log "External display detected during sync; Sidecar probe missed, preserving remembered Sidecar state"
+      else
+        clear_state
+        log "External display detected during sync; Sidecar is not connected"
+      fi
     fi
 
     log "External display detected during sync; disconnecting BetterDisplay virtual display"
@@ -230,9 +277,11 @@ sync_virtual_display_for_external_monitor() {
     return $?
   fi
 
+  log "No external display detected during sync; connecting BetterDisplay virtual display"
+  set_virtual_display_connection on || return $?
+
   if sidecar_was_active_with_external_display; then
     log "External display disappeared after Sidecar was active; reconnecting virtual display and restarting Sidecar"
-    set_virtual_display_connection on || return $?
     /bin/sleep "$VIRTUAL_DISPLAY_SETTLE_SECONDS"
 
     if is_sidecar_connected; then
@@ -245,7 +294,7 @@ sync_virtual_display_for_external_monitor() {
     return 0
   fi
 
-  log "No external display detected during sync; leaving BetterDisplay virtual display unchanged"
+  log "No external display detected during sync; Sidecar was not remembered active, leaving Sidecar unchanged"
   return 0
 }
 
