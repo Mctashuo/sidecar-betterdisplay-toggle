@@ -1,6 +1,7 @@
 #!/bin/zsh
 
 set -euo pipefail
+unsetopt BG_NICE
 
 ROOT_DIR="${0:A:h:h}"
 SCRIPT="${ROOT_DIR}/sidecar-toggle.sh"
@@ -245,6 +246,7 @@ run_script() {
   SIDECAR_TOGGLE_DEVICES_FILE="$dir/devices.txt" \
   SIDECAR_TOGGLE_TRIGGER_FILE="$dir/trigger" \
   SIDECAR_TOGGLE_LOCK_DIR="$dir/lock" \
+  SIDECAR_TOGGLE_LOCK_WAIT_SECONDS="${SIDECAR_TOGGLE_LOCK_WAIT_SECONDS:-8}" \
   SIDECAR_TOGGLE_VIRTUAL_DISPLAY_SETTLE_SECONDS="0" \
   "$SCRIPT" "$@"
 }
@@ -300,6 +302,22 @@ EOF
 
   assert_contains "$dir/launcher.log" "connect Primary iPad"
   assert_not_contains "$dir/launcher.log" "connect Backup iPad"
+}
+
+test_toggle_waits_for_sync_lock_instead_of_dropping_trigger() {
+  local dir remover_pid
+  dir="$(/usr/bin/mktemp -d)"
+  make_fixture "$dir" 0
+  /bin/mkdir "$dir/lock"
+
+  ( /bin/sleep 1; /bin/rmdir "$dir/lock" ) &
+  remover_pid=$!
+
+  SIDECAR_TOGGLE_LOCK_WAIT_SECONDS=3 run_script "$dir" toggle
+  wait "$remover_pid" 2>/dev/null || true
+
+  assert_contains "$dir/home/Library/Logs/sidecar-toggle.log" "waiting for lock"
+  assert_contains "$dir/launcher.log" "connect Example iPad"
 }
 
 test_sync_disconnects_virtual_display_without_toggling_sidecar() {

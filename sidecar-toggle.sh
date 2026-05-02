@@ -13,6 +13,7 @@ DEVICES_FILE="${SIDECAR_TOGGLE_DEVICES_FILE:-${HOME}/.config/sidecar-toggle/devi
 TRIGGER_FILE="${SIDECAR_TOGGLE_TRIGGER_FILE:-${HOME}/.sidecar-toggle-trigger}"
 LOCK_DIR="${SIDECAR_TOGGLE_LOCK_DIR:-/tmp/sidecar-toggle.${UID}.lock}"
 VIRTUAL_DISPLAY_SETTLE_SECONDS="${SIDECAR_TOGGLE_VIRTUAL_DISPLAY_SETTLE_SECONDS:-2}"
+LOCK_WAIT_SECONDS="${SIDECAR_TOGGLE_LOCK_WAIT_SECONDS:-8}"
 PREFERRED_DEVICES=(
   "Example iPad"
   "Example Tablet"
@@ -74,6 +75,22 @@ load_trigger_device_priority() {
 
 cleanup() {
   /bin/rmdir "$LOCK_DIR" 2>/dev/null || true
+}
+
+acquire_lock() {
+  local wait_seconds="$1"
+  local waited=0
+
+  while ! /bin/mkdir "$LOCK_DIR" 2>/dev/null; do
+    if (( waited >= wait_seconds )); then
+      log "Another sidecar-toggle instance is already running"
+      return 1
+    fi
+
+    log "Another sidecar-toggle instance is already running; waiting for lock"
+    /bin/sleep 1
+    waited=$((waited + 1))
+  done
 }
 
 write_state() {
@@ -342,8 +359,7 @@ main() {
   load_preferred_devices
   load_trigger_device_priority
 
-  if ! /bin/mkdir "$LOCK_DIR" 2>/dev/null; then
-    log "Another sidecar-toggle instance is already running"
+  if ! acquire_lock "$LOCK_WAIT_SECONDS"; then
     return 0
   fi
   trap cleanup EXIT INT TERM
@@ -374,8 +390,7 @@ main() {
 sync_main() {
   load_preferred_devices
 
-  if ! /bin/mkdir "$LOCK_DIR" 2>/dev/null; then
-    log "Another sidecar-toggle instance is already running"
+  if ! acquire_lock 0; then
     return 0
   fi
   trap cleanup EXIT INT TERM
