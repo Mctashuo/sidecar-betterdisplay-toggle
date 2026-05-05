@@ -251,8 +251,15 @@ has_external_display_from_ioreg() {
   '
 }
 
+is_idempotent_betterdisplay_set_failure() {
+  local output="$1"
+
+  [[ "$output" == *"Failed."* ]]
+}
+
 set_virtual_display_connection() {
   local state="$1"
+  local output exit_status
 
   if [[ ! -x "$BETTERDISPLAY" ]]; then
     log "BetterDisplay is not executable: ${BETTERDISPLAY}"
@@ -260,7 +267,21 @@ set_virtual_display_connection() {
   fi
 
   log "Setting BetterDisplay virtual display tagID=${BETTERDISPLAY_VIRTUAL_TAG_ID} connected=${state}"
-  "$BETTERDISPLAY" set --tagID="$BETTERDISPLAY_VIRTUAL_TAG_ID" --connected="$state" >> "$LOG_FILE" 2>&1
+  output="$("$BETTERDISPLAY" set --tagID="$BETTERDISPLAY_VIRTUAL_TAG_ID" --connected="$state" 2>&1)"
+  exit_status=$?
+
+  [[ -n "$output" ]] && print -r -- "$output" >> "$LOG_FILE"
+
+  if (( exit_status == 0 )); then
+    return 0
+  fi
+
+  if is_idempotent_betterdisplay_set_failure "$output"; then
+    log "BetterDisplay virtual display already connected=${state}; treating set failure as non-fatal"
+    return 0
+  fi
+
+  return "$exit_status"
 }
 
 prepare_virtual_display_for_sidecar() {

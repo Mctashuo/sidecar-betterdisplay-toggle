@@ -198,7 +198,10 @@ EOF
 #!/bin/zsh
 print -r -- "$*" >> "${FAKE_BETTERDISPLAY_LOG}"
 
-if [[ "$1" == "get" && "$2" == "--identifiers" && "${FAKE_EXTERNAL_DISPLAY:-0}" == "betterdisplay_physical_on_ioreg_inactive" ]]; then
+if [[ "$1" == "set" && -n "${FAKE_BETTERDISPLAY_SET_FAILURE:-}" ]]; then
+  print -- "${FAKE_BETTERDISPLAY_SET_FAILURE}"
+  exit 1
+elif [[ "$1" == "get" && "$2" == "--identifiers" && "${FAKE_EXTERNAL_DISPLAY:-0}" == "betterdisplay_physical_on_ioreg_inactive" ]]; then
   print -- '{'
   print -- '  "deviceType" : "Display",'
   print -- '  "name" : "MAG 272U X24",'
@@ -236,6 +239,7 @@ run_script() {
 
   FAKE_EXTERNAL_DISPLAY="$(<"$dir/external")" \
   FAKE_BETTERDISPLAY_LOG="$dir/betterdisplay.log" \
+  FAKE_BETTERDISPLAY_SET_FAILURE="${FAKE_BETTERDISPLAY_SET_FAILURE:-}" \
   FAKE_LAUNCHER_LOG="$dir/launcher.log" \
   HOME="$dir/home" \
   SIDECAR_TOGGLE_SYSTEM_PROFILER="$dir/bin/system_profiler" \
@@ -444,6 +448,30 @@ test_sync_keeps_virtual_display_connected_when_only_virtual_display_exists() {
   run_script "$dir" sync
 
   assert_contains "$dir/betterdisplay.log" "set --tagID=16 --connected=on"
+}
+
+test_sync_treats_already_connected_betterdisplay_failure_as_non_fatal() {
+  local dir
+  dir="$(/usr/bin/mktemp -d)"
+  make_fixture "$dir" 0
+
+  FAKE_BETTERDISPLAY_SET_FAILURE="Failed." run_script "$dir" sync
+
+  assert_contains "$dir/betterdisplay.log" "set --tagID=16 --connected=on"
+  assert_contains "$dir/home/Library/Logs/sidecar-toggle.log" "already connected=on"
+}
+
+test_sync_preserves_unexpected_betterdisplay_set_failure() {
+  local dir
+  dir="$(/usr/bin/mktemp -d)"
+  make_fixture "$dir" 0
+
+  if FAKE_BETTERDISPLAY_SET_FAILURE="Unexpected BetterDisplay error" run_script "$dir" sync; then
+    fail "Expected unexpected BetterDisplay set failure to fail sync"
+  fi
+
+  assert_contains "$dir/betterdisplay.log" "set --tagID=16 --connected=on"
+  assert_contains "$dir/home/Library/Logs/sidecar-toggle.log" "Unexpected BetterDisplay error"
 }
 
 for test_name in ${(k)functions}; do
