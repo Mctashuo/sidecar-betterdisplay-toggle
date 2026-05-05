@@ -151,7 +151,10 @@ EOF
 
   /bin/cat > "$dir/bin/ioreg" <<'EOF'
 #!/bin/zsh
-if [[ "${FAKE_EXTERNAL_DISPLAY:-0}" == "system_profiler_gpu_only" ]]; then
+if [[ "${FAKE_EXTERNAL_DISPLAY:-0}" == "ioreg_failure" ]]; then
+  print -u2 -- "ioreg failed"
+  exit 1
+elif [[ "${FAKE_EXTERNAL_DISPLAY:-0}" == "system_profiler_gpu_only" ]]; then
   print -- '+-o IOMobileFramebufferShim  <class IOMobileFramebufferShim>'
   print -- '  | {'
   print -- '  |   "IONameMatched" = "dispext0,t8132"'
@@ -459,6 +462,31 @@ test_sync_treats_already_connected_betterdisplay_failure_as_non_fatal() {
 
   assert_contains "$dir/betterdisplay.log" "set --tagID=16 --connected=on"
   assert_contains "$dir/home/Library/Logs/sidecar-toggle.log" "already connected=on"
+}
+
+test_sync_leaves_virtual_display_unchanged_when_external_probe_is_unknown() {
+  local dir
+  dir="$(/usr/bin/mktemp -d)"
+  make_fixture "$dir" ioreg_failure
+
+  run_script "$dir" sync
+
+  assert_not_contains "$dir/betterdisplay.log" "set --tagID=16 --connected="
+  assert_contains "$dir/home/Library/Logs/sidecar-toggle.log" "External display probe unknown; leaving virtual display unchanged"
+}
+
+test_toggle_leaves_virtual_display_unchanged_when_external_probe_is_unknown() {
+  local dir
+  dir="$(/usr/bin/mktemp -d)"
+  make_fixture "$dir" ioreg_failure
+
+  run_script "$dir" toggle
+
+  assert_not_contains "$dir/betterdisplay.log" "set --tagID=16 --connected="
+  assert_contains "$dir/launcher.log" "connect Example iPad"
+  assert_not_contains "$dir/state" "external-sidecar"
+  assert_not_contains "$dir/state" "recovered"
+  assert_contains "$dir/home/Library/Logs/sidecar-toggle.log" "External display probe unknown; leaving virtual display unchanged"
 }
 
 test_sync_preserves_unexpected_betterdisplay_set_failure() {

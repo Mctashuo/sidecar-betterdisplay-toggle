@@ -115,23 +115,78 @@ is_sidecar_connected() {
 }
 
 has_external_display() {
-  if ioreg_has_display_data; then
-    has_external_display_from_ioreg || has_external_display_from_betterdisplay
-    return $?
+  [[ "$(probe_external_display)" == "present" ]]
+}
+
+probe_external_display() {
+  local probe_status
+
+  ioreg_has_display_data
+  probe_status=$?
+  if (( probe_status == 2 )); then
+    print -r -- "unknown"
+    return 0
+  fi
+
+  if (( probe_status == 0 )); then
+    has_external_display_from_ioreg
+    probe_status=$?
+    if (( probe_status == 0 )); then
+      print -r -- "present"
+      return 0
+    fi
+    if (( probe_status == 2 )); then
+      print -r -- "unknown"
+      return 0
+    fi
+
+    has_external_display_from_betterdisplay
+    probe_status=$?
+    if (( probe_status == 0 )); then
+      print -r -- "present"
+      return 0
+    fi
+    if (( probe_status == 2 )); then
+      print -r -- "unknown"
+      return 0
+    fi
+
+    print -r -- "absent"
+    return 0
   fi
 
   has_external_display_from_system_profiler
+  probe_status=$?
+  if (( probe_status == 0 )); then
+    print -r -- "present"
+  elif (( probe_status == 2 )); then
+    print -r -- "unknown"
+  else
+    print -r -- "absent"
+  fi
 }
 
 ioreg_has_display_data() {
-  "$IOREG" -lw0 -r -c IOMobileFramebuffer | /usr/bin/awk '
+  local output
+
+  if ! output="$("$IOREG" -lw0 -r -c IOMobileFramebuffer 2>/dev/null)"; then
+    return 2
+  fi
+
+  print -r -- "$output" | /usr/bin/awk '
     /^\+-o IOMobileFramebuffer/ { found = 1 }
     END { exit !found }
   '
 }
 
 has_external_display_from_system_profiler() {
-  "$SYSTEM_PROFILER" SPDisplaysDataType | /usr/bin/awk '
+  local output
+
+  if ! output="$("$SYSTEM_PROFILER" SPDisplaysDataType 2>/dev/null)"; then
+    return 2
+  fi
+
+  print -r -- "$output" | /usr/bin/awk '
     function finish_display() {
       if (inside && online && external && !virtual && !airplay && !betterdisplay_virtual && !internal) {
         found = 1
@@ -197,7 +252,7 @@ has_external_display_from_betterdisplay() {
   [[ -x "$BETTERDISPLAY" ]] || return 1
 
   if ! identifiers="$("$BETTERDISPLAY" get --identifiers 2>/dev/null)"; then
-    return 1
+    return 2
   fi
 
   for tag_id in ${(f)"$(print -r -- "$identifiers" | /usr/bin/awk '
@@ -221,7 +276,13 @@ has_external_display_from_betterdisplay() {
 }
 
 has_external_display_from_ioreg() {
-  "$IOREG" -lw0 -r -c IOMobileFramebuffer | /usr/bin/awk '
+  local output
+
+  if ! output="$("$IOREG" -lw0 -r -c IOMobileFramebuffer 2>/dev/null)"; then
+    return 2
+  fi
+
+  print -r -- "$output" | /usr/bin/awk '
     function finish_display() {
       if (inside && external && display_attributes && physical_transport && active_timing) {
         found = 1
@@ -285,19 +346,40 @@ set_virtual_display_connection() {
 }
 
 prepare_virtual_display_for_sidecar() {
-  if has_external_display; then
-    log "External display detected; disconnecting BetterDisplay virtual display before Sidecar connect"
-    set_virtual_display_connection off
-    return $?
-  fi
+  local external_display_state
 
-  log "No external display detected; connecting BetterDisplay virtual display before Sidecar connect"
-  set_virtual_display_connection on || return $?
-  /bin/sleep "$VIRTUAL_DISPLAY_SETTLE_SECONDS"
+  external_display_state="$(probe_external_display)"
+
+  case "$external_display_state" in
+    present)
+      log "External display detected; disconnecting BetterDisplay virtual display before Sidecar connect"
+      set_virtual_display_connection off
+      return $?
+      ;;
+    absent)
+      log "No external display detected; connecting BetterDisplay virtual display before Sidecar connect"
+      set_virtual_display_connection on || return $?
+      /bin/sleep "$VIRTUAL_DISPLAY_SETTLE_SECONDS"
+      ;;
+    unknown)
+      log "External display probe unknown; leaving virtual display unchanged"
+      ;;
+  esac
+
+  return 0
 }
 
 sync_virtual_display_for_external_monitor() {
-  if has_external_display; then
+  local external_display_state
+
+  external_display_state="$(probe_external_display)"
+
+  if [[ "$external_display_state" == "unknown" ]]; then
+    log "External display probe unknown; leaving virtual display unchanged"
+    return 0
+  fi
+
+  if [[ "$external_display_state" == "present" ]]; then
     if is_sidecar_connected; then
       write_state "external-sidecar"
       log "External display and Sidecar detected during sync; remembering Sidecar state"
@@ -401,11 +483,17 @@ main() {
   prepare_virtual_display_for_sidecar || return $?
   connect_preferred_device || return $?
 
-  if has_external_display; then
-    write_state "external-sidecar"
-  else
-    write_state "recovered"
-  fi
+  case "$(probe_external_display)" in
+    present)
+      write_state "external-sidecar"
+      ;;
+    absent)
+      write_state "recovered"
+      ;;
+    unknown)
+      log "External display probe unknown; leaving Sidecar recovery state unchanged"
+      ;;
+  esac
 }
 
 sync_main() {

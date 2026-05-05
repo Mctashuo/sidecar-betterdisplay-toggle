@@ -20,7 +20,7 @@ Suggested direction:
 - Or treat the known "already connected" failure as non-fatal.
 - Apply the same principle to repeated `--connected=off` calls if needed.
 
-- [ ] Use a three-state external display probe.
+- [x] Use a three-state external display probe.
 
 `has_external_display` currently returns only true or false, but the real system
 state can be more nuanced:
