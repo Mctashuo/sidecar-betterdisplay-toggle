@@ -126,7 +126,7 @@ write_virtual_target_state() {
   print -r -- "$1" > "$VIRTUAL_STATE_FILE"
 }
 
-EXTERNAL_SIDECAR_MISS_THRESHOLD="${SIDECAR_TOGGLE_MISS_THRESHOLD:-5}"
+EXTERNAL_SIDECAR_MISS_THRESHOLD="${SIDECAR_TOGGLE_MISS_THRESHOLD:-30}"
 
 sidecar_was_active_with_external_display() {
   [[ -f "$STATE_FILE" ]] && [[ "$(<"$STATE_FILE")" == external-sidecar* ]]
@@ -347,7 +347,6 @@ has_external_display_from_betterdisplay() {
     fi
   done
 
-  printf '%s\n%s\n' "absent" "$(/bin/date +%s)" > "$DDC_CACHE_FILE"
   return 1
 }
 

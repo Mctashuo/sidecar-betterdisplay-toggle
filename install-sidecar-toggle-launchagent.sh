@@ -15,7 +15,8 @@ SYNC_PLIST_TARGET="${PLIST_DIR}/local.sidecar-display-sync.plist"
 LABEL="local.sidecar-toggle"
 SYNC_LABEL="local.sidecar-display-sync"
 DOMAIN="gui/$(/usr/bin/id -u)"
-SYNC_INTERVAL_SECONDS="10"
+SYNC_INTERVAL_SECONDS="30"
+WINDOWSERVER_DISPLAYS_PLIST="/Library/Preferences/com.apple.windowserver.displays.plist"
 LAUNCHER="${SIDECAR_TOGGLE_LAUNCHER:-${HOME}/.local/bin/SidecarLauncher}"
 LAUNCHCTL="${SIDECAR_TOGGLE_LAUNCHCTL:-/bin/launchctl}"
 
@@ -114,6 +115,14 @@ PLIST
     <string>${SCRIPT_TARGET}</string>
     <string>sync</string>
   </array>
+
+  <key>WatchPaths</key>
+  <array>
+    <string>${WINDOWSERVER_DISPLAYS_PLIST}</string>
+  </array>
+
+  <key>ThrottleInterval</key>
+  <integer>2</integer>
 
   <key>StartInterval</key>
   <integer>${SYNC_INTERVAL_SECONDS}</integer>
