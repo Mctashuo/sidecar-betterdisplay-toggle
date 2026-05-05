@@ -129,6 +129,10 @@ PLIST
 
 "$LAUNCHCTL" bootout "${DOMAIN}" "$PLIST_TARGET" >/dev/null 2>&1 || true
 "$LAUNCHCTL" bootout "${DOMAIN}" "$SYNC_PLIST_TARGET" >/dev/null 2>&1 || true
+: > "${HOME}/Library/Logs/sidecar-toggle.launchd.out.log" 2>/dev/null || true
+: > "${HOME}/Library/Logs/sidecar-toggle.launchd.err.log" 2>/dev/null || true
+: > "${HOME}/Library/Logs/sidecar-display-sync.launchd.out.log" 2>/dev/null || true
+: > "${HOME}/Library/Logs/sidecar-display-sync.launchd.err.log" 2>/dev/null || true
 "$LAUNCHCTL" bootstrap "${DOMAIN}" "$PLIST_TARGET"
 "$LAUNCHCTL" bootstrap "${DOMAIN}" "$SYNC_PLIST_TARGET"
 "$LAUNCHCTL" enable "${DOMAIN}/${LABEL}"

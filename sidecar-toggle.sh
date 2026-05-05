@@ -10,6 +10,7 @@ IOREG="${SIDECAR_TOGGLE_IOREG:-/usr/sbin/ioreg}"
 LOG_FILE="${SIDECAR_TOGGLE_LOG_FILE:-${HOME}/Library/Logs/sidecar-toggle.log}"
 STATE_FILE="${SIDECAR_TOGGLE_STATE_FILE:-${HOME}/.sidecar-toggle-state}"
 VIRTUAL_STATE_FILE="${SIDECAR_TOGGLE_VIRTUAL_STATE_FILE:-${HOME}/.sidecar-toggle-virtual-state}"
+DDC_CACHE_FILE="${SIDECAR_TOGGLE_DDC_CACHE_FILE:-/tmp/sidecar-toggle.${UID}.ddc-cache}"
 DEVICES_FILE="${SIDECAR_TOGGLE_DEVICES_FILE:-${HOME}/.config/sidecar-toggle/devices.txt}"
 TRIGGER_FILE="${SIDECAR_TOGGLE_TRIGGER_FILE:-${HOME}/.sidecar-toggle-trigger}"
 LOCK_DIR="${SIDECAR_TOGGLE_LOCK_DIR:-/tmp/sidecar-toggle.${UID}.lock}"
@@ -75,14 +76,26 @@ load_trigger_device_priority() {
 }
 
 cleanup() {
+  /bin/rm -f "$LOCK_DIR/pid" 2>/dev/null || true
   /bin/rmdir "$LOCK_DIR" 2>/dev/null || true
 }
 
 acquire_lock() {
   local wait_seconds="$1"
   local waited=0
+  local lock_pid
 
   while ! /bin/mkdir "$LOCK_DIR" 2>/dev/null; do
+    if [[ -f "$LOCK_DIR/pid" ]]; then
+      lock_pid="$(<"$LOCK_DIR/pid")"
+      if [[ -n "$lock_pid" ]] && ! /bin/kill -0 "$lock_pid" 2>/dev/null; then
+        log "Removing stale lock left by dead process ${lock_pid}"
+        /bin/rm -f "$LOCK_DIR/pid" 2>/dev/null || true
+        /bin/rmdir "$LOCK_DIR" 2>/dev/null || true
+        continue
+      fi
+    fi
+
     if (( waited >= wait_seconds )); then
       log "Another sidecar-toggle instance is already running"
       return 1
@@ -92,6 +105,8 @@ acquire_lock() {
     /bin/sleep 1
     waited=$((waited + 1))
   done
+
+  print -r -- "$$" > "$LOCK_DIR/pid"
 }
 
 write_state() {
@@ -111,8 +126,30 @@ write_virtual_target_state() {
   print -r -- "$1" > "$VIRTUAL_STATE_FILE"
 }
 
+EXTERNAL_SIDECAR_MISS_THRESHOLD="${SIDECAR_TOGGLE_MISS_THRESHOLD:-5}"
+
 sidecar_was_active_with_external_display() {
-  [[ -f "$STATE_FILE" ]] && [[ "$(<"$STATE_FILE")" == "external-sidecar" ]]
+  [[ -f "$STATE_FILE" ]] && [[ "$(<"$STATE_FILE")" == external-sidecar* ]]
+}
+
+increment_external_sidecar_miss() {
+  local current miss_count
+
+  current="$(<"$STATE_FILE")"
+  if [[ "$current" == external-sidecar:* ]]; then
+    miss_count="${current#external-sidecar:}"
+  else
+    miss_count=0
+  fi
+  miss_count=$(( miss_count + 1 ))
+
+  if (( miss_count >= EXTERNAL_SIDECAR_MISS_THRESHOLD )); then
+    clear_state
+    log "Sidecar probe missed ${miss_count} consecutive times; clearing remembered Sidecar state"
+  else
+    write_state "external-sidecar:${miss_count}"
+    log "External display detected during sync; Sidecar probe missed (${miss_count}/${EXTERNAL_SIDECAR_MISS_THRESHOLD}), preserving remembered Sidecar state"
+  fi
 }
 
 is_sidecar_connected() {
@@ -136,18 +173,31 @@ finish_external_display_probe() {
   print -r -- "$state"
 }
 
-probe_external_display() {
-  local probe_status
+capture_ioreg_output() {
+  local output
 
-  ioreg_has_display_data
+  if ! output="$("$IOREG" -lw0 -r -c IOMobileFramebuffer 2>/dev/null)"; then
+    return 2
+  fi
+
+  print -r -- "$output"
+}
+
+probe_external_display() {
+  local probe_status ioreg_output
+
+  ioreg_output="$(capture_ioreg_output)"
   probe_status=$?
   if (( probe_status == 2 )); then
     finish_external_display_probe "unknown" "External display probe unknown; ioreg probe failed"
     return 0
   fi
 
+  ioreg_has_display_data "$ioreg_output"
+  probe_status=$?
+
   if (( probe_status == 0 )); then
-    has_external_display_from_ioreg
+    has_external_display_from_ioreg "$ioreg_output"
     probe_status=$?
     if (( probe_status == 0 )); then
       finish_external_display_probe "present" "External display detected from ioreg active timing"
@@ -185,13 +235,9 @@ probe_external_display() {
 }
 
 ioreg_has_display_data() {
-  local output
+  local ioreg_output="$1"
 
-  if ! output="$("$IOREG" -lw0 -r -c IOMobileFramebuffer 2>/dev/null)"; then
-    return 2
-  fi
-
-  print -r -- "$output" | /usr/bin/awk '
+  print -r -- "$ioreg_output" | /usr/bin/awk '
     /^\+-o IOMobileFramebuffer/ { found = 1 }
     END { exit !found }
   '
@@ -265,9 +311,19 @@ has_external_display_from_system_profiler() {
 }
 
 has_external_display_from_betterdisplay() {
-  local identifiers tag_id
+  local identifiers tag_id cached_result cached_time now
 
   [[ -x "$BETTERDISPLAY" ]] || return 1
+
+  if [[ -f "$DDC_CACHE_FILE" ]]; then
+    cached_result="$(/usr/bin/sed -n '1p' "$DDC_CACHE_FILE")"
+    cached_time="$(/usr/bin/sed -n '2p' "$DDC_CACHE_FILE")"
+    now="$(/bin/date +%s)"
+    if [[ -n "$cached_result" && -n "$cached_time" ]] && (( now - cached_time < 30 )); then
+      [[ "$cached_result" == "present" ]] && return 0
+      [[ "$cached_result" == "absent" ]] && return 1
+    fi
+  fi
 
   if ! identifiers="$("$BETTERDISPLAY" get --identifiers 2>/dev/null)"; then
     return 2
@@ -286,21 +342,19 @@ has_external_display_from_betterdisplay() {
   ')"}; do
     [[ -z "$tag_id" ]] && continue
     if "$BETTERDISPLAY" get --tagID="$tag_id" --ddcCapabilitiesString >/dev/null 2>&1; then
+      printf '%s\n%s\n' "present" "$(/bin/date +%s)" > "$DDC_CACHE_FILE"
       return 0
     fi
   done
 
+  printf '%s\n%s\n' "absent" "$(/bin/date +%s)" > "$DDC_CACHE_FILE"
   return 1
 }
 
 has_external_display_from_ioreg() {
-  local output
+  local ioreg_output="$1"
 
-  if ! output="$("$IOREG" -lw0 -r -c IOMobileFramebuffer 2>/dev/null)"; then
-    return 2
-  fi
-
-  print -r -- "$output" | /usr/bin/awk '
+  print -r -- "$ioreg_output" | /usr/bin/awk '
     function finish_display() {
       if (inside && external && display_attributes && physical_transport && active_timing) {
         found = 1
@@ -333,6 +387,8 @@ has_external_display_from_ioreg() {
 is_idempotent_betterdisplay_set_failure() {
   local output="$1"
 
+  # BetterDisplay's exact idempotent failure text is undocumented; the full
+  # output is always written to the log file for human review.
   [[ "$output" == *"Failed."* ]]
 }
 
@@ -357,7 +413,7 @@ set_virtual_display_connection() {
 
   if is_idempotent_betterdisplay_set_failure "$output"; then
     log "BetterDisplay virtual display already connected=${state}; treating set failure as non-fatal"
-    return 0
+    return 3
   fi
 
   return "$exit_status"
@@ -365,20 +421,27 @@ set_virtual_display_connection() {
 
 ensure_virtual_display_connection() {
   local state="$1"
+  local set_status
 
   if read_virtual_target_state "$state"; then
-    log "BetterDisplay virtual display target already connected=${state}; skipping set"
     return 0
   fi
 
-  set_virtual_display_connection "$state" || return $?
+  set_virtual_display_connection "$state"
+  set_status=$?
+
+  if (( set_status == 3 )); then
+    return 0
+  fi
+
+  (( set_status != 0 )) && return "$set_status"
   write_virtual_target_state "$state"
 }
 
 prepare_virtual_display_for_sidecar() {
   local external_display_state
 
-  external_display_state="$(probe_external_display)"
+  external_display_state="${1:-$(probe_external_display)}"
 
   case "$external_display_state" in
     present)
@@ -411,23 +474,20 @@ sync_virtual_display_for_external_monitor() {
 
   if [[ "$external_display_state" == "present" ]]; then
     if is_sidecar_connected; then
-      write_state "external-sidecar"
+      write_state "external-sidecar:0"
       log "External display and Sidecar detected during sync; remembering Sidecar state"
     else
       if sidecar_was_active_with_external_display; then
-        log "External display detected during sync; Sidecar probe missed, preserving remembered Sidecar state"
+        increment_external_sidecar_miss
       else
         clear_state
-        log "External display detected during sync; Sidecar is not connected"
       fi
     fi
 
-    log "External display detected during sync; disconnecting BetterDisplay virtual display"
     ensure_virtual_display_connection off
     return $?
   fi
 
-  log "No external display detected during sync; connecting BetterDisplay virtual display"
   ensure_virtual_display_connection on || return $?
 
   if sidecar_was_active_with_external_display; then
@@ -444,7 +504,6 @@ sync_virtual_display_for_external_monitor() {
     return 0
   fi
 
-  log "No external display detected during sync; Sidecar was not remembered active, leaving Sidecar unchanged"
   return 0
 }
 
@@ -510,12 +569,15 @@ main() {
     return $?
   fi
 
-  prepare_virtual_display_for_sidecar || return $?
+  local external_display_state
+  external_display_state="$(probe_external_display)"
+
+  prepare_virtual_display_for_sidecar "$external_display_state" || return $?
   connect_preferred_device || return $?
 
-  case "$(probe_external_display)" in
+  case "$external_display_state" in
     present)
-      write_state "external-sidecar"
+      write_state "external-sidecar:0"
       ;;
     absent)
       write_state "recovered"
@@ -526,6 +588,8 @@ main() {
   esac
 }
 
+# sync does not load trigger device priority; the trigger file targets a
+# single manual toggle and is not relevant to automatic Sidecar recovery.
 sync_main() {
   load_preferred_devices
 
@@ -534,7 +598,6 @@ sync_main() {
   fi
   trap cleanup EXIT INT TERM
 
-  log "Display sync requested"
   sync_virtual_display_for_external_monitor
 }
 

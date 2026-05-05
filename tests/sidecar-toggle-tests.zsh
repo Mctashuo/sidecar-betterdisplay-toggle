@@ -277,6 +277,8 @@ run_script() {
   SIDECAR_TOGGLE_LOCK_DIR="$dir/lock" \
   SIDECAR_TOGGLE_LOCK_WAIT_SECONDS="${SIDECAR_TOGGLE_LOCK_WAIT_SECONDS:-8}" \
   SIDECAR_TOGGLE_VIRTUAL_DISPLAY_SETTLE_SECONDS="0" \
+  SIDECAR_TOGGLE_DDC_CACHE_FILE="$dir/ddc-cache" \
+  SIDECAR_TOGGLE_MISS_THRESHOLD="${SIDECAR_TOGGLE_MISS_THRESHOLD:-5}" \
   "$SCRIPT" "$@"
 }
 
@@ -476,7 +478,7 @@ test_sync_ignores_powered_off_external_display_left_in_ioreg() {
   local dir
   dir="$(/usr/bin/mktemp -d)"
   make_fixture "$dir" powered_off_external
-  print -r -- "external-sidecar" > "$dir/state"
+  print -r -- "external-sidecar:0" > "$dir/state"
 
   run_script "$dir" sync
 
@@ -490,7 +492,7 @@ test_sync_ignores_stale_system_profiler_external_when_ioreg_is_powered_off() {
   local dir
   dir="$(/usr/bin/mktemp -d)"
   make_fixture "$dir" stale_system_profiler_powered_off
-  print -r -- "external-sidecar" > "$dir/state"
+  print -r -- "external-sidecar:0" > "$dir/state"
 
   run_script "$dir" sync
 
@@ -503,7 +505,7 @@ test_sync_detects_betterdisplay_physical_display_when_ioreg_timing_is_inactive()
   local dir
   dir="$(/usr/bin/mktemp -d)"
   make_fixture "$dir" betterdisplay_physical_on_ioreg_inactive
-  print -r -- "external-sidecar" > "$dir/state"
+  print -r -- "external-sidecar:0" > "$dir/state"
 
   run_script "$dir" sync
 
@@ -519,7 +521,7 @@ test_sync_preserves_external_sidecar_state_when_sidecar_probe_temporarily_misses
   local dir
   dir="$(/usr/bin/mktemp -d)"
   make_fixture "$dir" 1
-  print -r -- "external-sidecar" > "$dir/state"
+  print -r -- "external-sidecar:0" > "$dir/state"
 
   run_script "$dir" sync
 
@@ -586,6 +588,65 @@ test_sync_preserves_unexpected_betterdisplay_set_failure() {
 
   assert_contains "$dir/betterdisplay.log" "set --tagID=16 --connected=on"
   assert_contains "$dir/home/Library/Logs/sidecar-toggle.log" "Unexpected BetterDisplay error"
+}
+
+test_sync_clears_external_sidecar_state_after_consecutive_misses() {
+  local dir
+  dir="$(/usr/bin/mktemp -d)"
+  make_fixture "$dir" 1
+  print -r -- "external-sidecar:0" > "$dir/state"
+
+  SIDECAR_TOGGLE_MISS_THRESHOLD=3 run_script "$dir" sync
+  SIDECAR_TOGGLE_MISS_THRESHOLD=3 run_script "$dir" sync
+  SIDECAR_TOGGLE_MISS_THRESHOLD=3 run_script "$dir" sync
+
+  assert_not_contains "$dir/state" "external-sidecar"
+}
+
+test_sync_resets_miss_count_when_sidecar_confirmed() {
+  local dir
+  dir="$(/usr/bin/mktemp -d)"
+  make_fixture "$dir" nested_displays
+  print -r -- "external-sidecar:3" > "$dir/state"
+
+  run_script "$dir" sync
+
+  assert_contains "$dir/state" "external-sidecar:0"
+}
+
+test_sync_does_not_write_virtual_state_on_idempotent_betterdisplay_failure() {
+  local dir
+  dir="$(/usr/bin/mktemp -d)"
+  make_fixture "$dir" 0
+
+  FAKE_BETTERDISPLAY_SET_FAILURE="Failed." run_script "$dir" sync
+
+  assert_not_contains "$dir/virtual-state" "on"
+}
+
+test_sync_uses_ddc_cache_to_avoid_repeated_betterdisplay_calls() {
+  local dir
+  dir="$(/usr/bin/mktemp -d)"
+  make_fixture "$dir" betterdisplay_physical_on_ioreg_inactive
+  print -r -- "external-sidecar:0" > "$dir/state"
+
+  run_script "$dir" sync
+  run_script "$dir" sync
+
+  assert_count "$dir/betterdisplay.log" "get --identifiers" "1"
+}
+
+test_toggle_recovers_from_stale_lock_left_by_dead_process() {
+  local dir
+  dir="$(/usr/bin/mktemp -d)"
+  make_fixture "$dir" 0
+  /bin/mkdir "$dir/lock"
+  print -r -- "99999999" > "$dir/lock/pid"
+
+  run_script "$dir" toggle
+
+  assert_contains "$dir/home/Library/Logs/sidecar-toggle.log" "stale lock"
+  assert_contains "$dir/launcher.log" "connect Example iPad"
 }
 
 for test_name in ${(k)functions}; do
