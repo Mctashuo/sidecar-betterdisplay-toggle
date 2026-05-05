@@ -291,6 +291,16 @@ test_toggle_connects_virtual_display_before_sidecar_when_no_external_display() {
   assert_contains "$dir/launcher.log" "connect Example iPad"
 }
 
+test_toggle_tracks_virtual_display_on_target_when_no_external_display() {
+  local dir
+  dir="$(/usr/bin/mktemp -d)"
+  make_fixture "$dir" 0
+
+  run_script "$dir" toggle
+
+  assert_contains "$dir/virtual-state" "on"
+}
+
 test_toggle_disconnects_virtual_display_before_sidecar_when_external_display_exists() {
   local dir
   dir="$(/usr/bin/mktemp -d)"
@@ -300,6 +310,16 @@ test_toggle_disconnects_virtual_display_before_sidecar_when_external_display_exi
 
   assert_contains "$dir/betterdisplay.log" "set --tagID=16 --connected=off"
   assert_contains "$dir/launcher.log" "connect Example iPad"
+}
+
+test_toggle_tracks_virtual_display_off_target_when_external_display_exists() {
+  local dir
+  dir="$(/usr/bin/mktemp -d)"
+  make_fixture "$dir" 1
+
+  run_script "$dir" toggle
+
+  assert_contains "$dir/virtual-state" "off"
 }
 
 test_toggle_uses_private_device_config_priority() {

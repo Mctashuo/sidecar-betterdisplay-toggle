@@ -65,7 +65,7 @@ Suggested direction:
 - Only call BetterDisplay when the desired state changes.
 - This should reduce log noise and unnecessary BetterDisplay CLI work.
 
-- [ ] Separate Sidecar and virtual display state files.
+- [x] Separate Sidecar and virtual display state files.
 
 The current state file tracks Sidecar recovery state, for example
 `external-sidecar` or `recovered`. It does not separately track the desired

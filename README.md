@@ -332,9 +332,10 @@ ioreg -lw0 -r -c IOMobileFramebuffer
 
 ```text
 ~/.sidecar-toggle-state
+~/.sidecar-toggle-virtual-state
 ```
 
-可能内容：
+`~/.sidecar-toggle-state` 记录 Sidecar 恢复流程状态，可能内容：
 
 - `external-sidecar`
   - 表示上一次检测到“真实外接显示器存在，并且随航已连接”。
@@ -344,6 +345,13 @@ ioreg -lw0 -r -c IOMobileFramebuffer
   - 防止后台 sync 每 10 秒重复重启随航。
 
 手动断开随航时会清除状态文件。
+
+`~/.sidecar-toggle-virtual-state` 记录 BetterDisplay 虚拟屏目标状态，可能内容：
+
+- `on`
+  - 表示脚本最近一次希望虚拟屏保持连接。
+- `off`
+  - 表示脚本最近一次希望虚拟屏保持断开。
 
 ## 日志
 
@@ -475,6 +483,7 @@ SIDECAR_TOGGLE_LOG_FILE="$HOME/Library/Logs/sidecar-toggle.log"
 
 ```bash
 SIDECAR_TOGGLE_STATE_FILE="$HOME/.sidecar-toggle-state"
+SIDECAR_TOGGLE_VIRTUAL_STATE_FILE="$HOME/.sidecar-toggle-virtual-state"
 ```
 
 ### 设备优先级配置文件

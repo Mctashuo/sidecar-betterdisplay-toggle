@@ -383,12 +383,12 @@ prepare_virtual_display_for_sidecar() {
   case "$external_display_state" in
     present)
       log "External display detected; disconnecting BetterDisplay virtual display before Sidecar connect"
-      set_virtual_display_connection off
+      ensure_virtual_display_connection off
       return $?
       ;;
     absent)
       log "No external display detected; connecting BetterDisplay virtual display before Sidecar connect"
-      set_virtual_display_connection on || return $?
+      ensure_virtual_display_connection on || return $?
       /bin/sleep "$VIRTUAL_DISPLAY_SETTLE_SECONDS"
       ;;
     unknown)
