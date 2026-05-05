@@ -37,6 +37,27 @@ assert_not_contains() {
   fi
 }
 
+assert_count() {
+  local file="$1"
+  local expected="$2"
+  local count="$3"
+  local actual
+
+  if [[ -f "$file" ]]; then
+    actual="$(/usr/bin/grep -F -- "$expected" "$file" | /usr/bin/wc -l | /usr/bin/tr -d '[:space:]')"
+  else
+    actual="0"
+  fi
+
+  [[ "$actual" == "$count" ]] || {
+    print -u2 -- "Expected $count occurrences of: $expected"
+    print -u2 -- "Actual count: $actual"
+    print -u2 -- "Actual contents:"
+    [[ -f "$file" ]] && /bin/cat "$file" >&2
+    exit 1
+  }
+}
+
 make_fixture() {
   local dir="$1"
   local external="$2"
@@ -250,6 +271,7 @@ run_script() {
   SIDECAR_TOGGLE_BETTERDISPLAY="$dir/bin/BetterDisplay" \
   SIDECAR_TOGGLE_VIRTUAL_TAG_ID="16" \
   SIDECAR_TOGGLE_STATE_FILE="$dir/state" \
+  SIDECAR_TOGGLE_VIRTUAL_STATE_FILE="$dir/virtual-state" \
   SIDECAR_TOGGLE_DEVICES_FILE="$dir/devices.txt" \
   SIDECAR_TOGGLE_TRIGGER_FILE="$dir/trigger" \
   SIDECAR_TOGGLE_LOCK_DIR="$dir/lock" \
@@ -377,6 +399,44 @@ test_sync_connects_virtual_display_without_toggling_sidecar_when_no_external_dis
 
   assert_contains "$dir/betterdisplay.log" "set --tagID=16 --connected=on"
   assert_not_contains "$dir/launcher.log" "connect Example iPad"
+}
+
+test_sync_skips_repeated_virtual_display_on_request() {
+  local dir
+  dir="$(/usr/bin/mktemp -d)"
+  make_fixture "$dir" 0
+
+  run_script "$dir" sync
+  run_script "$dir" sync
+
+  assert_count "$dir/betterdisplay.log" "set --tagID=16 --connected=on" "1"
+  assert_contains "$dir/virtual-state" "on"
+}
+
+test_sync_skips_repeated_virtual_display_off_request() {
+  local dir
+  dir="$(/usr/bin/mktemp -d)"
+  make_fixture "$dir" 1
+
+  run_script "$dir" sync
+  run_script "$dir" sync
+
+  assert_count "$dir/betterdisplay.log" "set --tagID=16 --connected=off" "1"
+  assert_contains "$dir/virtual-state" "off"
+}
+
+test_sync_calls_betterdisplay_when_virtual_target_changes() {
+  local dir
+  dir="$(/usr/bin/mktemp -d)"
+  make_fixture "$dir" 1
+
+  run_script "$dir" sync
+  print -r -- "0" > "$dir/external"
+  run_script "$dir" sync
+
+  assert_count "$dir/betterdisplay.log" "set --tagID=16 --connected=off" "1"
+  assert_count "$dir/betterdisplay.log" "set --tagID=16 --connected=on" "1"
+  assert_contains "$dir/virtual-state" "on"
 }
 
 test_sync_uses_ioreg_fallback_when_system_profiler_has_no_display_entries() {

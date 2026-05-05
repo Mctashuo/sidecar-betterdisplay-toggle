@@ -9,6 +9,7 @@ SYSTEM_PROFILER="${SIDECAR_TOGGLE_SYSTEM_PROFILER:-/usr/sbin/system_profiler}"
 IOREG="${SIDECAR_TOGGLE_IOREG:-/usr/sbin/ioreg}"
 LOG_FILE="${SIDECAR_TOGGLE_LOG_FILE:-${HOME}/Library/Logs/sidecar-toggle.log}"
 STATE_FILE="${SIDECAR_TOGGLE_STATE_FILE:-${HOME}/.sidecar-toggle-state}"
+VIRTUAL_STATE_FILE="${SIDECAR_TOGGLE_VIRTUAL_STATE_FILE:-${HOME}/.sidecar-toggle-virtual-state}"
 DEVICES_FILE="${SIDECAR_TOGGLE_DEVICES_FILE:-${HOME}/.config/sidecar-toggle/devices.txt}"
 TRIGGER_FILE="${SIDECAR_TOGGLE_TRIGGER_FILE:-${HOME}/.sidecar-toggle-trigger}"
 LOCK_DIR="${SIDECAR_TOGGLE_LOCK_DIR:-/tmp/sidecar-toggle.${UID}.lock}"
@@ -99,6 +100,15 @@ write_state() {
 
 clear_state() {
   /bin/rm -f "$STATE_FILE" 2>/dev/null || true
+}
+
+read_virtual_target_state() {
+  [[ -f "$VIRTUAL_STATE_FILE" ]] || return 1
+  [[ "$(<"$VIRTUAL_STATE_FILE")" == "$1" ]]
+}
+
+write_virtual_target_state() {
+  print -r -- "$1" > "$VIRTUAL_STATE_FILE"
 }
 
 sidecar_was_active_with_external_display() {
@@ -353,6 +363,18 @@ set_virtual_display_connection() {
   return "$exit_status"
 }
 
+ensure_virtual_display_connection() {
+  local state="$1"
+
+  if read_virtual_target_state "$state"; then
+    log "BetterDisplay virtual display target already connected=${state}; skipping set"
+    return 0
+  fi
+
+  set_virtual_display_connection "$state" || return $?
+  write_virtual_target_state "$state"
+}
+
 prepare_virtual_display_for_sidecar() {
   local external_display_state
 
@@ -401,12 +423,12 @@ sync_virtual_display_for_external_monitor() {
     fi
 
     log "External display detected during sync; disconnecting BetterDisplay virtual display"
-    set_virtual_display_connection off
+    ensure_virtual_display_connection off
     return $?
   fi
 
   log "No external display detected during sync; connecting BetterDisplay virtual display"
-  set_virtual_display_connection on || return $?
+  ensure_virtual_display_connection on || return $?
 
   if sidecar_was_active_with_external_display; then
     log "External display disappeared after Sidecar was active; reconnecting virtual display and restarting Sidecar"

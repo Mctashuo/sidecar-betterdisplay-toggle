@@ -54,7 +54,7 @@ Suggested direction:
   - `No external display detected; ioreg stale and DDC unavailable`
   - `External display probe unknown; leaving virtual display unchanged`
 
-- [ ] Avoid repeated BetterDisplay set calls in sync.
+- [x] Avoid repeated BetterDisplay set calls in sync.
 
 The sync job runs every 10 seconds and may repeatedly call BetterDisplay with
 the same target state.
