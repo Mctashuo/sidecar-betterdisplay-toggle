@@ -36,7 +36,7 @@ Suggested direction:
 - Keep the current state unchanged when the probe is `unknown`.
 - Log the probe result explicitly.
 
-- [ ] Add probe-source logging.
+- [x] Add probe-source logging.
 
 The script now combines several detection sources:
 

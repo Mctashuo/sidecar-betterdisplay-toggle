@@ -118,13 +118,21 @@ has_external_display() {
   [[ "$(probe_external_display)" == "present" ]]
 }
 
+finish_external_display_probe() {
+  local state="$1"
+  local reason="$2"
+
+  log "$reason"
+  print -r -- "$state"
+}
+
 probe_external_display() {
   local probe_status
 
   ioreg_has_display_data
   probe_status=$?
   if (( probe_status == 2 )); then
-    print -r -- "unknown"
+    finish_external_display_probe "unknown" "External display probe unknown; ioreg probe failed"
     return 0
   fi
 
@@ -132,37 +140,37 @@ probe_external_display() {
     has_external_display_from_ioreg
     probe_status=$?
     if (( probe_status == 0 )); then
-      print -r -- "present"
+      finish_external_display_probe "present" "External display detected from ioreg active timing"
       return 0
     fi
     if (( probe_status == 2 )); then
-      print -r -- "unknown"
+      finish_external_display_probe "unknown" "External display probe unknown; ioreg active timing probe failed"
       return 0
     fi
 
     has_external_display_from_betterdisplay
     probe_status=$?
     if (( probe_status == 0 )); then
-      print -r -- "present"
+      finish_external_display_probe "present" "External display detected from BetterDisplay DDC"
       return 0
     fi
     if (( probe_status == 2 )); then
-      print -r -- "unknown"
+      finish_external_display_probe "unknown" "External display probe unknown; BetterDisplay DDC probe failed"
       return 0
     fi
 
-    print -r -- "absent"
+    finish_external_display_probe "absent" "No external display detected; ioreg stale and BetterDisplay DDC unavailable"
     return 0
   fi
 
   has_external_display_from_system_profiler
   probe_status=$?
   if (( probe_status == 0 )); then
-    print -r -- "present"
+    finish_external_display_probe "present" "External display detected from system_profiler"
   elif (( probe_status == 2 )); then
-    print -r -- "unknown"
+    finish_external_display_probe "unknown" "External display probe unknown; system_profiler probe failed"
   else
-    print -r -- "absent"
+    finish_external_display_probe "absent" "No external display detected from system_profiler"
   fi
 }
 

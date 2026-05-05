@@ -335,6 +335,7 @@ test_sync_disconnects_virtual_display_without_toggling_sidecar() {
   run_script "$dir" sync
 
   assert_contains "$dir/betterdisplay.log" "set --tagID=16 --connected=off"
+  assert_contains "$dir/home/Library/Logs/sidecar-toggle.log" "External display detected from system_profiler"
   assert_not_contains "$dir/launcher.log" "connect Example iPad"
   assert_not_contains "$dir/launcher.log" "disconnect Example iPad"
 }
@@ -347,6 +348,7 @@ test_sync_detects_real_external_display_in_nested_system_profiler_output() {
   run_script "$dir" sync
 
   assert_contains "$dir/betterdisplay.log" "set --tagID=16 --connected=off"
+  assert_contains "$dir/home/Library/Logs/sidecar-toggle.log" "External display detected from system_profiler"
   assert_not_contains "$dir/launcher.log" "connect Example iPad"
   assert_not_contains "$dir/launcher.log" "disconnect Example iPad"
 }
@@ -385,6 +387,7 @@ test_sync_uses_ioreg_fallback_when_system_profiler_has_no_display_entries() {
   run_script "$dir" sync
 
   assert_contains "$dir/betterdisplay.log" "set --tagID=16 --connected=off"
+  assert_contains "$dir/home/Library/Logs/sidecar-toggle.log" "External display detected from ioreg active timing"
   assert_not_contains "$dir/launcher.log" "connect Example iPad"
   assert_not_contains "$dir/launcher.log" "disconnect Example iPad"
 }
@@ -398,6 +401,7 @@ test_sync_ignores_powered_off_external_display_left_in_ioreg() {
   run_script "$dir" sync
 
   assert_contains "$dir/betterdisplay.log" "set --tagID=16 --connected=on"
+  assert_contains "$dir/home/Library/Logs/sidecar-toggle.log" "No external display detected; ioreg stale and BetterDisplay DDC unavailable"
   assert_contains "$dir/launcher.log" "connect Example iPad"
   assert_contains "$dir/state" "recovered"
 }
@@ -426,6 +430,7 @@ test_sync_detects_betterdisplay_physical_display_when_ioreg_timing_is_inactive()
   assert_contains "$dir/betterdisplay.log" "get --identifiers"
   assert_contains "$dir/betterdisplay.log" "get --tagID=3 --ddcCapabilitiesString"
   assert_contains "$dir/betterdisplay.log" "set --tagID=16 --connected=off"
+  assert_contains "$dir/home/Library/Logs/sidecar-toggle.log" "External display detected from BetterDisplay DDC"
   assert_not_contains "$dir/launcher.log" "connect Example iPad"
   assert_contains "$dir/state" "external-sidecar"
 }
@@ -472,6 +477,7 @@ test_sync_leaves_virtual_display_unchanged_when_external_probe_is_unknown() {
   run_script "$dir" sync
 
   assert_not_contains "$dir/betterdisplay.log" "set --tagID=16 --connected="
+  assert_contains "$dir/home/Library/Logs/sidecar-toggle.log" "External display probe unknown; ioreg probe failed"
   assert_contains "$dir/home/Library/Logs/sidecar-toggle.log" "External display probe unknown; leaving virtual display unchanged"
 }
 
